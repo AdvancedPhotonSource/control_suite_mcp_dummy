@@ -11,6 +11,24 @@ owns the instrument state and executes commands through a blocking ZMQ `REP`
 loop. The MCP server exposes FastMCP tools and forwards each call to the worker
 over a local ZMQ request.
 
+The two-process design is intentional. FastMCP and many instrument-control
+libraries may each depend on their own event loop, callback thread, or runtime
+lifecycle. Running the MCP HTTP server and the instrument controller in
+separate OS processes prevents those async runtimes from sharing a Python event
+loop or thread. ZMQ is used as a narrow local command boundary between the two
+processes.
+
+In this pattern:
+
+- The FastMCP server owns MCP/HTTP request handling.
+- The instrument worker owns the control library, instrument state, and command
+  execution.
+- ZMQ carries JSON-serializable commands and responses between them.
+- The worker can keep a simple blocking command loop or adapt internally to the
+  event loop required by a real instrument library.
+- The launcher starts both processes for convenience, but it does not merge
+  their runtimes into one process.
+
 ## Setup
 
 ```bash
