@@ -300,6 +300,7 @@ dependencies = [
     { name = "fastmcp" },
     { name = "matplotlib" },
     { name = "numpy" },
+    { name = "pyyaml" },
     { name = "pyzmq" },
     { name = "scipy" },
 ]
@@ -314,6 +315,7 @@ requires-dist = [
     { name = "fastmcp", specifier = ">=2.0" },
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "numpy", specifier = ">=1.26" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "pyzmq", specifier = ">=26.0" },
     { name = "scipy", specifier = ">=1.12" },
 ]

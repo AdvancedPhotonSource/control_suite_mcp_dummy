@@ -140,6 +140,12 @@ class SimulatedInstrument:
         Names of simulated tunable parameters.
     parameter_ranges
         Lower and upper bounds for simulated tunable parameters.
+    true_parameters
+        Ideal parameter values used to calculate simulated blur.
+    blur_factor
+        Scale factor applied to normalized parameter error to set blur.
+    drift_factor
+        Scale factor applied to normalized parameter change to set offset.
     """
 
     whole_image: np.ndarray
@@ -158,6 +164,10 @@ class SimulatedInstrument:
     parameter_ranges: list[tuple[float, ...]] = field(
         default_factory=lambda: [(-1.0,), (1.0,)]
     )
+    true_parameters: list[float] = field(default_factory=lambda: [0.0])
+    blur_factor: float = 0.0
+    drift_factor: float = 0.0
+    add_line_scan_candidates_to_image: bool = False
     blur: float | None = None
     offset: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0]))
 
@@ -182,6 +192,25 @@ class SimulatedInstrument:
         self.line_scan_call_history: list[dict[str, Any]] = []
         self.parameter_history: list[list[float]] = []
         self.parameters = [0.0 for _ in self.parameter_names]
+        self.validate_parameter_configuration()
+
+    @property
+    def len_parameter_history(self) -> int:
+        """Return the number of parameter-setting calls."""
+        return len(self.parameter_history)
+
+    def validate_parameter_configuration(self) -> None:
+        """Validate simulated parameter metadata."""
+        if len(self.true_parameters) != len(self.parameter_names):
+            raise ValueError("true_parameters must match the number of parameter_names.")
+        if len(self.parameter_ranges) != 2:
+            raise ValueError("parameter_ranges must contain lower and upper bound rows.")
+        lower_bounds, upper_bounds = self.parameter_ranges
+        if (
+            len(lower_bounds) != len(self.parameter_names)
+            or len(upper_bounds) != len(self.parameter_names)
+        ):
+            raise ValueError("parameter_ranges must match the number of parameter_names.")
 
     @property
     def counter_acquire_image(self) -> int:
@@ -217,12 +246,8 @@ class SimulatedInstrument:
             raise ValueError(
                 f"Expected {len(self.parameter_names)} parameter values, got {len(parameters)}."
             )
-        if len(self.parameter_ranges) != 2:
-            raise ValueError("parameter_ranges must contain lower and upper bound rows.")
+        self.validate_parameter_configuration()
         lower_bounds, upper_bounds = self.parameter_ranges
-        if len(lower_bounds) != len(parameters) or len(upper_bounds) != len(parameters):
-            raise ValueError("parameter_ranges must match the number of parameters.")
-
         values = [float(value) for value in parameters]
         for index, value in enumerate(values):
             lower = lower_bounds[index]
@@ -236,6 +261,21 @@ class SimulatedInstrument:
                     f"Parameter {self.parameter_names[index]}={value} is outside "
                     f"the allowed range ({lower}, {upper})."
                 )
+
+        scalers = np.asarray(upper_bounds, dtype=float) - np.asarray(lower_bounds, dtype=float)
+        if np.any(np.isclose(scalers, 0.0)):
+            raise ValueError("Parameter ranges must have nonzero width.")
+        value_array = np.asarray(values, dtype=float)
+        true_parameter_array = np.asarray(self.true_parameters, dtype=float)
+        normalized_errors = (value_array - true_parameter_array) / scalers
+        blur = float(np.abs(normalized_errors).sum() * self.blur_factor)
+        self.set_blur(blur)
+
+        if self.len_parameter_history > 0 and self.drift_factor > 0:
+            initial_parameters = np.asarray(self.parameter_history[0], dtype=float)
+            mean_delta = float(((initial_parameters - value_array) / scalers).mean())
+            drift = np.ones(2) * mean_delta * self.drift_factor
+            self.set_offset(y_offset=float(drift[0]), x_offset=float(drift[1]))
 
         self.parameters = values
         self.parameter_history.append(values)
@@ -255,6 +295,9 @@ class SimulatedInstrument:
             "offset": self.offset.tolist(),
             "parameter_names": self.parameter_names,
             "parameter_ranges": [list(row) for row in self.parameter_ranges],
+            "true_parameters": self.true_parameters,
+            "blur_factor": self.blur_factor,
+            "drift_factor": self.drift_factor,
             "parameters": self.parameters,
             "parameter_history": self.parameter_history,
             "counter_acquire_image": self.counter_acquire_image,

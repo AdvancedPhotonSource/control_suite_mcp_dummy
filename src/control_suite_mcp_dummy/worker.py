@@ -9,6 +9,7 @@ import json
 import logging
 
 import numpy as np
+import yaml
 import zmq
 
 from control_suite_mcp_dummy.protocol import error_response, ok_response
@@ -94,21 +95,124 @@ def load_image(path: str | None) -> np.ndarray:
     return np.load(image_path)
 
 
+def load_config(path: str | None) -> dict[str, Any]:
+    """Load an optional YAML worker configuration file.
+
+    Parameters
+    ----------
+    path
+        Path to a YAML configuration file.
+
+    Returns
+    -------
+    dict[str, Any]
+        Parsed configuration dictionary.
+    """
+    if path is None:
+        return {}
+    config_path = Path(path)
+    with config_path.open("r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle) or {}
+    if not isinstance(config, dict):
+        raise ValueError("Worker config YAML must contain a mapping at the top level.")
+    return config
+
+
+def resolve_config_value(
+    config: dict[str, Any],
+    section_name: str,
+    key: str,
+    default: Any,
+) -> Any:
+    """Resolve a setting from a config section or top-level fallback."""
+    section = config.get(section_name, {})
+    if section is not None and not isinstance(section, dict):
+        raise ValueError(f"Config section {section_name!r} must be a mapping.")
+    if isinstance(section, dict) and key in section:
+        return section[key]
+    return config.get(key, default)
+
+
+def resolve_parameter_ranges(value: Any) -> list[tuple[float, ...]]:
+    """Convert configured parameter ranges into tuple rows."""
+    if value is None:
+        return [(-1.0,), (1.0,)]
+    if not isinstance(value, list | tuple) or len(value) != 2:
+        raise ValueError("parameter_ranges must contain lower and upper bound rows.")
+    return [tuple(float(item) for item in row) for row in value]
+
+
 def build_instrument(args: argparse.Namespace) -> SimulatedInstrument:
     """Build the simulated instrument from CLI arguments."""
+    config = load_config(args.config)
+    parameter_config = config.get("parameter_setting", {})
+    if parameter_config is not None and not isinstance(parameter_config, dict):
+        raise ValueError("Config section 'parameter_setting' must be a mapping.")
+
     return SimulatedInstrument(
-        whole_image=load_image(args.image),
-        output_dir=Path(args.output_dir),
-        add_axis_ticks=args.add_axis_ticks,
-        n_ticks=args.n_ticks,
-        add_grid_lines=args.add_grid_lines,
-        invert_yaxis=args.invert_yaxis,
-        line_scan_gaussian_fit_y_threshold=args.line_scan_gaussian_fit_y_threshold,
-        plot_image_in_log_scale=args.plot_image_in_log_scale,
-        line_scan_return_gaussian_fit=args.line_scan_return_gaussian_fit,
-        poisson_noise_scale=args.poisson_noise_scale,
-        gaussian_psf_sigma=args.gaussian_psf_sigma,
-        scan_jitter=args.scan_jitter,
+        whole_image=load_image(resolve_config_value(config, "acquisition", "image", args.image)),
+        output_dir=Path(resolve_config_value(config, "worker", "output_dir", args.output_dir)),
+        add_axis_ticks=resolve_config_value(
+            config,
+            "acquisition",
+            "add_axis_ticks",
+            args.add_axis_ticks,
+        ),
+        n_ticks=resolve_config_value(config, "acquisition", "n_ticks", args.n_ticks),
+        add_grid_lines=resolve_config_value(
+            config,
+            "acquisition",
+            "add_grid_lines",
+            args.add_grid_lines,
+        ),
+        invert_yaxis=resolve_config_value(
+            config,
+            "acquisition",
+            "invert_yaxis",
+            args.invert_yaxis,
+        ),
+        line_scan_gaussian_fit_y_threshold=resolve_config_value(
+            config,
+            "acquisition",
+            "line_scan_gaussian_fit_y_threshold",
+            args.line_scan_gaussian_fit_y_threshold,
+        ),
+        plot_image_in_log_scale=resolve_config_value(
+            config,
+            "acquisition",
+            "plot_image_in_log_scale",
+            args.plot_image_in_log_scale,
+        ),
+        line_scan_return_gaussian_fit=resolve_config_value(
+            config,
+            "acquisition",
+            "line_scan_return_gaussian_fit",
+            args.line_scan_return_gaussian_fit,
+        ),
+        poisson_noise_scale=resolve_config_value(
+            config,
+            "acquisition",
+            "poisson_noise_scale",
+            args.poisson_noise_scale,
+        ),
+        gaussian_psf_sigma=resolve_config_value(
+            config,
+            "acquisition",
+            "gaussian_psf_sigma",
+            args.gaussian_psf_sigma,
+        ),
+        scan_jitter=resolve_config_value(config, "acquisition", "scan_jitter", args.scan_jitter),
+        add_line_scan_candidates_to_image=resolve_config_value(
+            config,
+            "acquisition",
+            "add_line_scan_candidates_to_image",
+            False,
+        ),
+        parameter_names=parameter_config.get("parameter_names", ["focus"]),
+        true_parameters=parameter_config.get("true_parameters", [0.0]),
+        parameter_ranges=resolve_parameter_ranges(parameter_config.get("parameter_ranges")),
+        drift_factor=parameter_config.get("drift_factor", 0.0),
+        blur_factor=parameter_config.get("blur_factor", 0.0),
     )
 
 
@@ -116,6 +220,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the worker CLI parser."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bind", default="tcp://127.0.0.1:5555")
+    parser.add_argument("--config", default=None, help="Optional YAML worker configuration.")
     parser.add_argument("--image", default=None, help="Optional .npy source image.")
     parser.add_argument("--output-dir", default=".tmp/control_suite_mcp_dummy")
     parser.add_argument("--add-axis-ticks", action="store_true")

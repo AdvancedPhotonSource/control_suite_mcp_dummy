@@ -43,6 +43,13 @@ Start both processes with one supervisor command:
 uv run control-suite --worker-endpoint tcp://127.0.0.1:5555 --mcp-host 0.0.0.0 --mcp-port 8050 --mcp-path /mcp
 ```
 
+To configure the simulated acquisition and parameter-setting behavior from
+YAML, pass a config file to the launcher:
+
+```bash
+uv run control-suite --config configs/simulated_parameter_tuning.yaml
+```
+
 The launcher starts the worker first, waits for a ZMQ health response, then
 starts the MCP server. The worker and MCP server remain separate OS processes.
 

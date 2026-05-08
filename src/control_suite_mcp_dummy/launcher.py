@@ -106,6 +106,8 @@ def build_worker_command(args: argparse.Namespace) -> list[str]:
         "--output-dir",
         args.output_dir,
     ]
+    if args.config is not None:
+        command.extend(["--config", args.config])
     if args.image is not None:
         command.extend(["--image", args.image])
     if args.add_axis_ticks:
@@ -174,6 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mcp-host", default="127.0.0.1")
     parser.add_argument("--mcp-port", type=int, default=8050)
     parser.add_argument("--mcp-path", default="/mcp")
+    parser.add_argument("--config", default=None, help="Optional YAML worker configuration.")
     parser.add_argument("--image", default=None, help="Optional .npy source image for the worker.")
     parser.add_argument("--output-dir", default=".tmp/control_suite_mcp_dummy")
     parser.add_argument("--add-axis-ticks", action="store_true")

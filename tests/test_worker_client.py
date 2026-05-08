@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from argparse import Namespace
 import multiprocessing as mp
 import time
 
@@ -11,6 +12,7 @@ from control_suite_mcp_dummy.simulated_acquisition import (
     create_default_image,
 )
 from control_suite_mcp_dummy.worker import InstrumentWorker
+from control_suite_mcp_dummy.worker import build_instrument
 from control_suite_mcp_dummy.zmq_client import WorkerClient
 
 
@@ -70,3 +72,68 @@ def test_worker_client_acquires_image_and_line_scan(tmp_path: Path) -> None:
     finally:
         process.terminate()
         process.join(timeout=5)
+
+
+def test_worker_builds_instrument_from_yaml_config(tmp_path: Path) -> None:
+    """YAML config can reproduce simulated acquisition and parameter settings."""
+    config_path = tmp_path / "config.yaml"
+    output_dir = tmp_path / "out"
+    config_path.write_text(
+        """
+worker:
+  output_dir: {output_dir}
+acquisition:
+  add_axis_ticks: true
+  add_grid_lines: false
+  invert_yaxis: false
+  add_line_scan_candidates_to_image: false
+  plot_image_in_log_scale: false
+  poisson_noise_scale: 100
+  scan_jitter: 0
+  gaussian_psf_sigma: 1
+parameter_setting:
+  parameter_names: [z]
+  true_parameters: [3.0]
+  parameter_ranges:
+    - [0.0]
+    - [10.0]
+  drift_factor: 30
+  blur_factor: 5
+""".format(output_dir=output_dir),
+        encoding="utf-8",
+    )
+    args = Namespace(
+        config=str(config_path),
+        image=None,
+        output_dir=".tmp/out",
+        add_axis_ticks=False,
+        n_ticks=10,
+        add_grid_lines=False,
+        invert_yaxis=False,
+        line_scan_gaussian_fit_y_threshold=0.0,
+        plot_image_in_log_scale=False,
+        line_scan_return_gaussian_fit=False,
+        poisson_noise_scale=None,
+        gaussian_psf_sigma=None,
+        scan_jitter=None,
+    )
+
+    instrument = build_instrument(args)
+
+    assert instrument.output_dir == output_dir.resolve()
+    assert instrument.add_axis_ticks is True
+    assert instrument.poisson_noise_scale == 100
+    assert instrument.scan_jitter == 0
+    assert instrument.gaussian_psf_sigma == 1
+    assert instrument.parameter_names == ["z"]
+    assert instrument.true_parameters == [3.0]
+    assert instrument.parameter_ranges == [(0.0,), (10.0,)]
+    assert instrument.drift_factor == 30
+    assert instrument.blur_factor == 5
+
+    assert instrument.set_parameters([3.0]) == "Set simulated parameters: z=3.0"
+    assert instrument.blur == 0.0
+    assert instrument.offset.tolist() == [0.0, 0.0]
+    assert instrument.set_parameters([5.0]) == "Set simulated parameters: z=5.0"
+    assert instrument.blur == 1.0
+    assert instrument.offset.tolist() == [-6.0, -6.0]
