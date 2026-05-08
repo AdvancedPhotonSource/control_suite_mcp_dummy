@@ -61,6 +61,16 @@ def create_mcp(worker_endpoint: str, timeout_ms: int = 30_000) -> FastMCP:
         return await call_worker("set_offset", {"y_offset": y_offset, "x_offset": x_offset})
 
     @mcp.tool()
+    async def set_parameters(
+        parameters: Annotated[
+            list[float],
+            "Simulated tuning parameter values to set.",
+        ],
+    ) -> str:
+        """Set simulated instrument tuning parameters."""
+        return await call_worker("set_parameters", {"parameters": parameters})
+
+    @mcp.tool()
     async def acquire_image(
         y_center: Annotated[float, "The y-coordinate of the center of the image to acquire."],
         x_center: Annotated[float, "The x-coordinate of the center of the image to acquire."],
@@ -131,4 +141,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -107,8 +107,8 @@ def create_default_image(shape: tuple[int, int] = (512, 512)) -> np.ndarray:
 
 
 @dataclass
-class SimulatedAcquireImageInstrument:
-    """Stateful simulated image-acquisition instrument.
+class SimulatedInstrument:
+    """Stateful simulated instrument for acquisition and parameter tuning.
 
     Parameters
     ----------
@@ -136,6 +136,10 @@ class SimulatedAcquireImageInstrument:
         Optional Gaussian point-spread-function sigma.
     scan_jitter
         Optional uniform coordinate jitter.
+    parameter_names
+        Names of simulated tunable parameters.
+    parameter_ranges
+        Lower and upper bounds for simulated tunable parameters.
     """
 
     whole_image: np.ndarray
@@ -150,6 +154,10 @@ class SimulatedAcquireImageInstrument:
     poisson_noise_scale: float | None = None
     gaussian_psf_sigma: float | None = None
     scan_jitter: float | None = None
+    parameter_names: list[str] = field(default_factory=lambda: ["focus"])
+    parameter_ranges: list[tuple[float, ...]] = field(
+        default_factory=lambda: [(-1.0,), (1.0,)]
+    )
     blur: float | None = None
     offset: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0]))
 
@@ -172,6 +180,8 @@ class SimulatedAcquireImageInstrument:
         self.psize_k: float | None = None
         self.image_acquisition_call_history: list[dict[str, Any]] = []
         self.line_scan_call_history: list[dict[str, Any]] = []
+        self.parameter_history: list[list[float]] = []
+        self.parameters = [0.0 for _ in self.parameter_names]
 
     @property
     def counter_acquire_image(self) -> int:
@@ -188,6 +198,54 @@ class SimulatedAcquireImageInstrument:
         self.offset = np.array([y_offset, x_offset], dtype=float)
         return {"offset": self.offset.tolist()}
 
+    def set_parameters(self, parameters: list[float]) -> str:
+        """Set simulated instrument tuning parameters.
+
+        Parameters
+        ----------
+        parameters
+            Parameter values to set. The number of values must match
+            ``parameter_names`` and each value must lie inside the configured
+            ``parameter_ranges``.
+
+        Returns
+        -------
+        str
+            Human-readable update message.
+        """
+        if len(parameters) != len(self.parameter_names):
+            raise ValueError(
+                f"Expected {len(self.parameter_names)} parameter values, got {len(parameters)}."
+            )
+        if len(self.parameter_ranges) != 2:
+            raise ValueError("parameter_ranges must contain lower and upper bound rows.")
+        lower_bounds, upper_bounds = self.parameter_ranges
+        if len(lower_bounds) != len(parameters) or len(upper_bounds) != len(parameters):
+            raise ValueError("parameter_ranges must match the number of parameters.")
+
+        values = [float(value) for value in parameters]
+        for index, value in enumerate(values):
+            lower = lower_bounds[index]
+            upper = upper_bounds[index]
+            if lower > upper:
+                raise ValueError(
+                    f"Parameter range for {self.parameter_names[index]} has lower > upper."
+                )
+            if not lower <= value <= upper:
+                raise ValueError(
+                    f"Parameter {self.parameter_names[index]}={value} is outside "
+                    f"the allowed range ({lower}, {upper})."
+                )
+
+        self.parameters = values
+        self.parameter_history.append(values)
+        assignments = ", ".join(
+            f"{name}={value}" for name, value in zip(self.parameter_names, values)
+        )
+        message = f"Set simulated parameters: {assignments}"
+        logger.info(message)
+        return message
+
     def get_state(self) -> dict[str, Any]:
         """Return a JSON-serializable instrument state summary."""
         return {
@@ -195,6 +253,10 @@ class SimulatedAcquireImageInstrument:
             "output_dir": str(self.output_dir),
             "blur": self.blur,
             "offset": self.offset.tolist(),
+            "parameter_names": self.parameter_names,
+            "parameter_ranges": [list(row) for row in self.parameter_ranges],
+            "parameters": self.parameters,
+            "parameter_history": self.parameter_history,
             "counter_acquire_image": self.counter_acquire_image,
             "image_acquisition_call_history": self.image_acquisition_call_history,
             "line_scan_call_history": self.line_scan_call_history,

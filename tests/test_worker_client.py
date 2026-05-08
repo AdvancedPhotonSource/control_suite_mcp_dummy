@@ -7,7 +7,7 @@ import multiprocessing as mp
 import time
 
 from control_suite_mcp_dummy.simulated_acquisition import (
-    SimulatedAcquireImageInstrument,
+    SimulatedInstrument,
     create_default_image,
 )
 from control_suite_mcp_dummy.worker import InstrumentWorker
@@ -16,7 +16,7 @@ from control_suite_mcp_dummy.zmq_client import WorkerClient
 
 def run_worker(endpoint: str, output_dir: str) -> None:
     """Run a worker process for tests."""
-    instrument = SimulatedAcquireImageInstrument(
+    instrument = SimulatedInstrument(
         whole_image=create_default_image(),
         output_dir=Path(output_dir),
         line_scan_return_gaussian_fit=True,
@@ -59,9 +59,14 @@ def test_worker_client_acquires_image_and_line_scan(tmp_path: Path) -> None:
         assert line_path.exists()
         assert "fwhm" in line_result
 
+        parameter_result = client.call("set_parameters", {"parameters": [0.25]})
+        assert parameter_result == "Set simulated parameters: focus=0.25"
+
         state = client.call("get_state")
         assert Path(state["output_dir"]).is_absolute()
         assert state["counter_acquire_image"] == 1
+        assert state["parameters"] == [0.25]
+        assert state["parameter_history"] == [[0.25]]
     finally:
         process.terminate()
         process.join(timeout=5)

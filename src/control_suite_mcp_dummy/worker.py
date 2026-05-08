@@ -13,7 +13,7 @@ import zmq
 
 from control_suite_mcp_dummy.protocol import error_response, ok_response
 from control_suite_mcp_dummy.simulated_acquisition import (
-    SimulatedAcquireImageInstrument,
+    SimulatedInstrument,
     create_default_image,
 )
 
@@ -30,13 +30,14 @@ class InstrumentWorker:
         process.
     """
 
-    def __init__(self, instrument: SimulatedAcquireImageInstrument) -> None:
+    def __init__(self, instrument: SimulatedInstrument) -> None:
         self.instrument = instrument
         self.handlers: dict[str, Callable[..., Any]] = {
             "health": self.health,
             "get_state": self.instrument.get_state,
             "set_blur": self.instrument.set_blur,
             "set_offset": self.instrument.set_offset,
+            "set_parameters": self.instrument.set_parameters,
             "acquire_image": self.instrument.acquire_image,
             "acquire_line_scan": self.instrument.acquire_line_scan,
         }
@@ -93,9 +94,9 @@ def load_image(path: str | None) -> np.ndarray:
     return np.load(image_path)
 
 
-def build_instrument(args: argparse.Namespace) -> SimulatedAcquireImageInstrument:
+def build_instrument(args: argparse.Namespace) -> SimulatedInstrument:
     """Build the simulated instrument from CLI arguments."""
-    return SimulatedAcquireImageInstrument(
+    return SimulatedInstrument(
         whole_image=load_image(args.image),
         output_dir=Path(args.output_dir),
         add_axis_ticks=args.add_axis_ticks,
@@ -140,4 +141,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

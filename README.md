@@ -101,5 +101,6 @@ codex mcp add control-suite-dummy --url http://127.0.0.1:8050/mcp
 - `acquire_line_scan(x_center, y_center, length, scan_step, angle=0.0)`
 - `set_blur(blur)`
 - `set_offset(y_offset, x_offset)`
+- `set_parameters(parameters)`
 - `get_state()`
 - `health()`
