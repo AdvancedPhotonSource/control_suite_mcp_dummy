@@ -24,6 +24,10 @@ from control_suite_mcp_dummy.simulated_acquisition import SimulatedInstrument, c
             {"y_center": 228, "x_center": 228, "size_y": 32, "size_x": 32},
         ),
         (
+            "acquire_image",
+            {"y_center": 5.5, "x_center": 5.5, "size_y": 0.5, "size_x": 0.5, "scan_step": 0.1},
+        ),
+        (
             "acquire_line_scan",
             {"x_center": 228, "y_center": 228, "length": 32, "scan_step": 1.0},
         ),

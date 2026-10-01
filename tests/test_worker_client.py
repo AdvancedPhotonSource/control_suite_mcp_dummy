@@ -8,6 +8,8 @@ import multiprocessing as mp
 import time
 
 import numpy as np
+from PIL import Image
+import pytest
 import tifffile
 
 from control_suite_mcp_dummy.simulated_acquisition import (
@@ -16,6 +18,7 @@ from control_suite_mcp_dummy.simulated_acquisition import (
 )
 from control_suite_mcp_dummy.worker import InstrumentWorker
 from control_suite_mcp_dummy.worker import build_instrument
+from control_suite_mcp_dummy.worker import build_parser
 from control_suite_mcp_dummy.worker import load_image
 from control_suite_mcp_dummy.zmq_client import WorkerClient
 
@@ -162,3 +165,65 @@ def test_load_image_supports_tiff(tmp_path: Path) -> None:
 
     assert loaded.dtype == np.float32
     np.testing.assert_array_equal(loaded, image)
+
+
+@pytest.mark.parametrize("suffix", [".npy", ".tiff", ".png"])
+@pytest.mark.parametrize("channels", [3, 4])
+def test_load_image_converts_color_to_grayscale(tmp_path, suffix, channels) -> None:
+    image = np.array(
+        [[[255, 0, 0, 0], [0, 255, 0, 255]], [[0, 0, 255, 128], [100, 100, 100, 0]]],
+        dtype=np.uint8,
+    )[..., :channels]
+    path = tmp_path / f"color{suffix}"
+    if suffix == ".npy":
+        np.save(path, image)
+    elif suffix == ".tiff":
+        tifffile.imwrite(path, image, photometric="rgb")
+    else:
+        Image.fromarray(image).save(path)
+
+    loaded = load_image(str(path))
+
+    assert loaded.dtype == np.float32
+    np.testing.assert_allclose(loaded, [[76.245, 149.685], [29.07, 100]], rtol=1e-6)
+
+
+def test_load_image_supports_jpeg(tmp_path) -> None:
+    image = np.full((8, 8, 3), [30, 100, 210], dtype=np.uint8)
+    path = tmp_path / "color.jpg"
+    Image.fromarray(image).save(path, quality=100, subsampling=0)
+
+    loaded = load_image(str(path))
+
+    assert loaded.shape == (8, 8)
+    assert loaded.dtype == np.float32
+    np.testing.assert_allclose(loaded, 91.61, atol=1)
+
+
+@pytest.mark.parametrize("shape", [(10,), (0, 10), (10, 10, 2)])
+def test_load_image_rejects_invalid_shapes(tmp_path, shape) -> None:
+    path = tmp_path / "invalid.npy"
+    np.save(path, np.zeros(shape))
+
+    with pytest.raises(ValueError, match="nonempty grayscale, RGB, or RGBA"):
+        load_image(str(path))
+
+
+def test_configured_image_and_pixel_sizes(tmp_path) -> None:
+    image = np.arange(10000, dtype=np.float32).reshape(100, 100)
+    image_path = tmp_path / "custom.npy"
+    np.save(image_path, image)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        f"worker:\n  output_dir: {tmp_path / 'output'}\n"
+        f"acquisition:\n  image: {image_path}\n  pixel_size_x: 0.1\n  pixel_size_y: 0.1\n",
+        encoding="utf-8",
+    )
+    instrument = build_instrument(build_parser().parse_args(["--config", str(config_path)]))
+
+    result = instrument.acquire_image(5.5, 5.5, 1.0, 1.0, scan_step=0.1)
+
+    np.testing.assert_allclose(np.load(result["array_path"]), image[50:60, 50:60])
+    assert instrument.get_state()["pixel_size_x"] == 0.1
+    assert instrument.get_state()["pixel_size_y"] == 0.1
+    assert result["psize"] == 0.1

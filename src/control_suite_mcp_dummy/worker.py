@@ -9,6 +9,7 @@ import json
 import logging
 
 import numpy as np
+from PIL import Image
 import tifffile
 import yaml
 import zmq
@@ -89,20 +90,33 @@ class InstrumentWorker:
 
 
 def load_image(path: str | None) -> np.ndarray:
-    """Load a source image from ``.npy`` or TIFF, or create the default image."""
+    """Load a float32 grayscale source, using cameraman when no path is given.
+
+    RGB and RGBA images use luminance weights; alpha is ignored.
+    """
     if path is None:
         return create_default_image()
-    image_path = Path(path)
+    image_path = Path(path).expanduser()
     suffix = image_path.suffix.lower()
     if suffix == ".npy":
         image = np.load(image_path)
     elif suffix in {".tif", ".tiff"}:
         image = tifffile.imread(image_path)
+    elif suffix in {".png", ".jpg", ".jpeg"}:
+        with Image.open(image_path) as source:
+            if source.mode not in {"1", "L", "I", "I;16", "F", "RGB", "RGBA"}:
+                source = source.convert("RGB")
+            image = np.asarray(source)
     else:
-        raise ValueError("Only .npy, .tif, and .tiff source images are supported.")
-    if image.ndim == 3:
+        raise ValueError("Supported source images: .npy, .tif, .tiff, .png, .jpg, .jpeg.")
+    image = np.asarray(image, dtype=np.float32)
+    if image.ndim == 3 and image.shape[-1] in {3, 4}:
+        image = image[..., :3] @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
+    elif image.ndim == 3 and image.shape[-1] == 1:
         image = image[..., 0]
-    return np.asarray(image, dtype=np.float32)
+    if image.ndim != 2 or 0 in image.shape:
+        raise ValueError("Source image must be nonempty grayscale, RGB, or RGBA.")
+    return image
 
 
 def load_config(path: str | None) -> dict[str, Any]:
@@ -162,6 +176,8 @@ def build_instrument(args: argparse.Namespace) -> SimulatedInstrument:
     return SimulatedInstrument(
         whole_image=load_image(resolve_config_value(config, "acquisition", "image", args.image)),
         output_dir=Path(resolve_config_value(config, "worker", "output_dir", args.output_dir)),
+        pixel_size_x=resolve_config_value(config, "acquisition", "pixel_size_x", 1.0),
+        pixel_size_y=resolve_config_value(config, "acquisition", "pixel_size_y", 1.0),
         add_axis_ticks=resolve_config_value(
             config,
             "acquisition",
@@ -231,7 +247,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bind", default="tcp://127.0.0.1:5555")
     parser.add_argument("--config", default=None, help="Optional YAML worker configuration.")
-    parser.add_argument("--image", default=None, help="Optional .npy source image.")
+    parser.add_argument("--image", default=None, help="Optional NumPy, TIFF, PNG, or JPEG image.")
     parser.add_argument("--output-dir", default=".tmp/control_suite_mcp_dummy")
     parser.add_argument("--add-axis-ticks", action="store_true")
     parser.add_argument("--n-ticks", type=int, default=10)

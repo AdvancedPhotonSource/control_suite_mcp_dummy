@@ -50,13 +50,38 @@ YAML, pass a config file to the launcher:
 uv run control-suite --config configs/simulated_parameter_tuning.yaml
 ```
 
-The YAML `acquisition.image` setting accepts `.npy`, `.tif`, and `.tiff`
-source images. If it is `null`, the worker uses the bundled 512×512 cameraman image.
+The YAML `acquisition.image` setting accepts `.npy`, `.tif`, `.tiff`, `.png`,
+`.jpg`, and `.jpeg` images. Paths are relative to the working directory.
+If omitted or `null`, the worker uses the bundled 512×512 cameraman image.
+RGB/RGBA images are converted to grayscale using
+`0.299 R + 0.587 G + 0.114 B`; alpha is ignored. Intensities retain their original
+scale and are stored as float32.
 
-Acquisition positions are source pixel indices: `y` is the row and `x` is the
-column. Sizes and `scan_step` are in source pixels; fractional coordinates use
-linear interpolation. Samples outside indices 0–511 on either axis are zero,
-including when simulation effects are enabled. For the full default image, call
+Set the source pixel spacing independently for each axis:
+
+```yaml
+acquisition:
+  image: data/my_image.png
+  pixel_size_x: 0.1
+  pixel_size_y: 0.1
+```
+
+Both pixel sizes default to 1 and must be finite and positive. Image and line-scan
+positions, region sizes, scan steps, drift offsets, and jitter use acquisition
+coordinate units. The source row is `y / pixel_size_y` and the source column is
+`x / pixel_size_x`; fractional indices use linear interpolation. Gaussian PSF
+sigma remains in source pixels. Samples outside the source pixel centers are
+zero, including when simulation effects are enabled.
+
+For a 100×100 image with pixel sizes of 0.1, this samples coordinates 5–6 on both
+axes (upper endpoint excluded), corresponding to source rows and columns 50–59:
+
+```python
+acquire_image(y_center=5.5, x_center=5.5, size_y=1.0, size_x=1.0, scan_step=0.1)
+```
+
+The returned `psize` is the acquisition scan step. With the default cameraman
+image and unit pixel sizes, acquire the full image with
 `acquire_image(y_center=256, x_center=256, size_y=512, size_x=512, scan_step=1)`.
 
 Acquisition tools return PNG image content alongside their existing JSON payloads

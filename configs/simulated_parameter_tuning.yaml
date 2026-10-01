@@ -5,8 +5,11 @@ mcp:
   include_images: true
 
 acquisition:
-  # Optional .npy, .tif, or .tiff image path. When null, the 512x512 cameraman image is used.
+  # Optional NumPy, TIFF, PNG, or JPEG path. Null uses the 512x512 cameraman image.
   image: null
+  # Source pixel spacing in acquisition coordinate units.
+  pixel_size_x: 1.0
+  pixel_size_y: 1.0
   add_axis_ticks: true
   add_grid_lines: false
   invert_yaxis: false

@@ -70,8 +70,8 @@ def create_mcp(
 
     @mcp.tool()
     async def set_offset(
-        y_offset: Annotated[float, "Simulated y drift offset."],
-        x_offset: Annotated[float, "Simulated x drift offset."],
+        y_offset: Annotated[float, "Simulated y drift offset in acquisition units."],
+        x_offset: Annotated[float, "Simulated x drift offset in acquisition units."],
     ) -> dict[str, Any]:
         """Set simulated drift offset in y, x order."""
         return await call_worker("set_offset", {"y_offset": y_offset, "x_offset": x_offset})
@@ -104,21 +104,21 @@ def create_mcp(
 
     @mcp.tool(output_schema={"type": "object", "additionalProperties": True})
     async def acquire_image(
-        y_center: Annotated[float, "The center row in source pixel coordinates."],
-        x_center: Annotated[float, "The center column in source pixel coordinates."],
-        size_y: Annotated[int, "The height of the acquisition region in source pixels."],
-        size_x: Annotated[int, "The width of the acquisition region in source pixels."],
+        y_center: Annotated[float, "The center y-coordinate in acquisition units."],
+        x_center: Annotated[float, "The center x-coordinate in acquisition units."],
+        size_y: Annotated[float, "The height of the acquisition region in acquisition units."],
+        size_x: Annotated[float, "The width of the acquisition region in acquisition units."],
         scan_step: Annotated[
             float,
-            "The step size in source pixels between sampled points in both y and x.",
+            "The step size in acquisition units between sampled points in both y and x.",
         ] = 1.0,
     ) -> ToolResult:
         """Acquire an image, returning img_path, array_path, and psize in JSON.
 
-        The default source is a 512x512 cameraman image with indices 0 through 511.
-        Samples outside the source are zero. Each axis samples from center-size/2
-        to center+size/2 (exclusive); center=(256, 256), size=(512, 512), step=1
-        acquires the full default image.
+        The source image and its pixel_size_x/y are configured on the worker.
+        Source pixel indices are x/pixel_size_x and y/pixel_size_y. Samples outside
+        the source are zero. Each axis samples from center-size/2 to center+size/2
+        (exclusive). Defaults are a 512x512 cameraman image and unit pixel sizes.
         PNG image content is also included when enabled in the server settings.
         """
         return await call_acquisition(
@@ -134,10 +134,10 @@ def create_mcp(
 
     @mcp.tool(output_schema={"type": "object", "additionalProperties": True})
     async def acquire_line_scan(
-        x_center: Annotated[float, "The x-coordinate of the center of the line scan."],
-        y_center: Annotated[float, "The y-coordinate of the center of the line scan."],
-        length: Annotated[float, "The length of the line scan."],
-        scan_step: Annotated[float, "The step size of the line scan."],
+        x_center: Annotated[float, "The center x-coordinate in acquisition units."],
+        y_center: Annotated[float, "The center y-coordinate in acquisition units."],
+        length: Annotated[float, "The length of the line scan in acquisition units."],
+        scan_step: Annotated[float, "The step size of the line scan in acquisition units."],
         angle: Annotated[
             float,
             "The angle of the line scan in degrees. 0 is horizontal.",
@@ -145,6 +145,8 @@ def create_mcp(
     ) -> ToolResult:
         """Acquire a line scan, returning img_path and optional fit metadata in JSON.
 
+        Coordinates use the source pixel sizes configured on the worker, as in
+        acquire_image. Samples outside the source are zero.
         PNG plot content is also included when enabled in the server settings.
         """
         return await call_acquisition(

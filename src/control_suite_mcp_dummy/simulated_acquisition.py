@@ -109,6 +109,8 @@ class SimulatedInstrument:
         Source image sampled by acquisition and line-scan commands.
     output_dir
         Directory where generated plots are written.
+    pixel_size_x, pixel_size_y
+        Source pixel spacing in acquisition coordinate units. Both default to 1.
     add_axis_ticks
         Add physical coordinate ticks to acquired image plots.
     n_ticks
@@ -126,9 +128,9 @@ class SimulatedInstrument:
     poisson_noise_scale
         Optional Poisson noise scale.
     gaussian_psf_sigma
-        Optional Gaussian point-spread-function sigma.
+        Optional Gaussian point-spread-function sigma in source pixels.
     scan_jitter
-        Optional uniform coordinate jitter.
+        Optional uniform jitter in acquisition coordinate units.
     parameter_names
         Names of simulated tunable parameters.
     parameter_ranges
@@ -163,6 +165,8 @@ class SimulatedInstrument:
     add_line_scan_candidates_to_image: bool = False
     blur: float | None = None
     offset: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0]))
+    pixel_size_x: float = 1.0
+    pixel_size_y: float = 1.0
 
     writable_config_names = {
         "add_axis_ticks",
@@ -185,12 +189,20 @@ class SimulatedInstrument:
 
     def __post_init__(self) -> None:
         """Build interpolators and initialize state buffers."""
+        for name in ("pixel_size_x", "pixel_size_y"):
+            value = float(getattr(self, name))
+            if not np.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and positive.")
+            setattr(self, name, value)
         self.output_dir = self.output_dir.expanduser().resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.image_array_artifact_dir = self.output_dir / "acquisition_arrays"
         self.image_array_artifact_dir.mkdir(parents=True, exist_ok=True)
         self.interpolator = RegularGridInterpolator(
-            (np.arange(self.whole_image.shape[0]), np.arange(self.whole_image.shape[1])),
+            (
+                np.arange(self.whole_image.shape[0]) * self.pixel_size_y,
+                np.arange(self.whole_image.shape[1]) * self.pixel_size_x,
+            ),
             self.whole_image,
             method="linear",
             bounds_error=False,
@@ -354,6 +366,8 @@ class SimulatedInstrument:
         """Return a JSON-serializable instrument state summary."""
         return {
             "image_shape": list(self.whole_image.shape),
+            "pixel_size_x": self.pixel_size_x,
+            "pixel_size_y": self.pixel_size_y,
             "output_dir": str(self.output_dir),
             "blur": self.blur,
             "offset": self.offset.tolist(),
@@ -441,9 +455,9 @@ class SimulatedInstrument:
         """Sample the source image and apply optional simulated physics effects."""
         outside = (
             (yy_flat < 0)
-            | (yy_flat > self.whole_image.shape[0] - 1)
+            | (yy_flat > (self.whole_image.shape[0] - 1) * self.pixel_size_y)
             | (xx_flat < 0)
-            | (xx_flat > self.whole_image.shape[1] - 1)
+            | (xx_flat > (self.whole_image.shape[1] - 1) * self.pixel_size_x)
         )
 
         def apply_blur(arr_flat: np.ndarray) -> np.ndarray:
@@ -480,7 +494,12 @@ class SimulatedInstrument:
             weights /= weights.sum()
             arr_flat = np.zeros(yy_flat.size)
             for index, weight in enumerate(weights):
-                points = np.column_stack([yy_flat + dy_flat[index], xx_flat + dx_flat[index]])
+                points = np.column_stack(
+                    [
+                        yy_flat + dy_flat[index] * self.pixel_size_y,
+                        xx_flat + dx_flat[index] * self.pixel_size_x,
+                    ]
+                )
                 arr_flat += weight * self.interpolator(points)
         else:
             arr_flat = self.interpolator(np.column_stack([yy_flat, xx_flat]))
@@ -502,14 +521,15 @@ class SimulatedInstrument:
         self,
         y_center: float,
         x_center: float,
-        size_y: int,
-        size_x: int,
+        size_y: float,
+        size_x: float,
         scan_step: float = 1.0,
     ) -> dict[str, Any]:
-        """Acquire an image using pixel coordinates, with zero padding outside the source.
+        """Acquire an image in acquisition units, with zero padding outside the source.
 
         Each axis samples ``center - size / 2`` up to ``center + size / 2``
-        (exclusive), spaced by ``scan_step`` source pixels.
+        (exclusive), spaced by ``scan_step`` in acquisition coordinate units.
+        Source pixel indices are ``y / pixel_size_y`` and ``x / pixel_size_x``.
         """
         loc_y = y_center - size_y / 2
         loc_x = x_center - size_x / 2

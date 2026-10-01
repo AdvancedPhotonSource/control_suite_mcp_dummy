@@ -188,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Include image content alongside JSON (default: enabled; overrides YAML).",
     )
-    parser.add_argument("--image", default=None, help="Optional .npy source image for the worker.")
+    parser.add_argument("--image", default=None, help="Optional NumPy, TIFF, PNG, or JPEG image.")
     parser.add_argument("--output-dir", default=".tmp/control_suite_mcp_dummy")
     parser.add_argument("--add-axis-ticks", action="store_true")
     parser.add_argument("--n-ticks", type=int, default=10)
