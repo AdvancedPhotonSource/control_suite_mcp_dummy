@@ -5,8 +5,8 @@ mcp:
   include_images: true
 
 acquisition:
-  # Optional .npy, .tif, or .tiff image path. When null, the built-in synthetic image is used.
-  image: data/synthetic_test_target.tiff
+  # Optional .npy, .tif, or .tiff image path. When null, the 512x512 cameraman image is used.
+  image: null
   add_axis_ticks: true
   add_grid_lines: false
   invert_yaxis: false

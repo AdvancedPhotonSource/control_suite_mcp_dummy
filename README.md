@@ -51,7 +51,13 @@ uv run control-suite --config configs/simulated_parameter_tuning.yaml
 ```
 
 The YAML `acquisition.image` setting accepts `.npy`, `.tif`, and `.tiff`
-source images. If it is `null`, the worker uses the built-in synthetic image.
+source images. If it is `null`, the worker uses the bundled 512×512 cameraman image.
+
+Acquisition positions are source pixel indices: `y` is the row and `x` is the
+column. Sizes and `scan_step` are in source pixels; fractional coordinates use
+linear interpolation. Samples outside indices 0–511 on either axis are zero,
+including when simulation effects are enabled. For the full default image, call
+`acquire_image(y_center=256, x_center=256, size_y=512, size_x=512, scan_step=1)`.
 
 Acquisition tools return PNG image content alongside their existing JSON payloads
 by default. The JSON still includes artifact paths and acquisition metadata.

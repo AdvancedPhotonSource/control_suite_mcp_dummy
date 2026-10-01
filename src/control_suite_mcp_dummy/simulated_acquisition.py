@@ -18,6 +18,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import tifffile
 from scipy import ndimage as ndi
 from scipy import optimize
 from scipy.interpolate import RegularGridInterpolator
@@ -92,18 +93,10 @@ def fit_gaussian_1d(
         return (np.nan, np.nan, np.nan, np.nan, np.nan, float(fit_x.min()), float(fit_x.max()))
 
 
-def create_default_image(shape: tuple[int, int] = (512, 512)) -> np.ndarray:
-    """Create a deterministic synthetic image for the dummy instrument."""
-    y, x = np.indices(shape, dtype=float)
-    image = (
-        40 * np.exp(-((x - 155) ** 2 + (y - 160) ** 2) / (2 * 42**2))
-        + 95 * np.exp(-((x - 330) ** 2 + (y - 245) ** 2) / (2 * 55**2))
-        + 65 * np.exp(-((x - 245) ** 2 + (y - 375) ** 2) / (2 * 35**2))
-        + 12 * np.sin(x / 18)
-        + 8 * np.cos(y / 23)
-    )
-    image -= image.min()
-    return image.astype(np.float32)
+def create_default_image() -> np.ndarray:
+    """Load the bundled 512×512 cameraman image as float32 intensities."""
+    path = Path(__file__).parent / "data" / "cameraman.tiff"
+    return tifffile.imread(path).astype(np.float32)
 
 
 @dataclass
@@ -446,6 +439,12 @@ class SimulatedInstrument:
 
     def sample(self, yy_flat: np.ndarray, xx_flat: np.ndarray, shape=None) -> np.ndarray:
         """Sample the source image and apply optional simulated physics effects."""
+        outside = (
+            (yy_flat < 0)
+            | (yy_flat > self.whole_image.shape[0] - 1)
+            | (xx_flat < 0)
+            | (xx_flat > self.whole_image.shape[1] - 1)
+        )
 
         def apply_blur(arr_flat: np.ndarray) -> np.ndarray:
             if shape is not None:
@@ -461,6 +460,7 @@ class SimulatedInstrument:
             arr_flat = self.interpolator(np.column_stack([yy_flat, xx_flat]))
             if self.blur is not None and self.blur > 0:
                 arr_flat = apply_blur(arr_flat)
+            arr_flat[outside] = 0.0
             return arr_flat
 
         if self.scan_jitter is not None:
@@ -495,6 +495,7 @@ class SimulatedInstrument:
                     np.random.poisson(np.clip(arr_flat * scaling_factor, 0, None)).astype(float)
                     / scaling_factor
                 )
+        arr_flat[outside] = 0.0
         return arr_flat
 
     def acquire_image(
@@ -505,7 +506,11 @@ class SimulatedInstrument:
         size_x: int,
         scan_step: float = 1.0,
     ) -> dict[str, Any]:
-        """Acquire and plot an image sampled from the whole image."""
+        """Acquire an image using pixel coordinates, with zero padding outside the source.
+
+        Each axis samples ``center - size / 2`` up to ``center + size / 2``
+        (exclusive), spaced by ``scan_step`` source pixels.
+        """
         loc_y = y_center - size_y / 2
         loc_x = x_center - size_x / 2
         self.image_acquisition_call_history.append(

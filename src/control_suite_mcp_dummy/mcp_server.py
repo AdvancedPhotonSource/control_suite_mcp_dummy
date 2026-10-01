@@ -104,17 +104,21 @@ def create_mcp(
 
     @mcp.tool(output_schema={"type": "object", "additionalProperties": True})
     async def acquire_image(
-        y_center: Annotated[float, "The y-coordinate of the center of the image to acquire."],
-        x_center: Annotated[float, "The x-coordinate of the center of the image to acquire."],
-        size_y: Annotated[int, "The height of the image to acquire."],
-        size_x: Annotated[int, "The width of the image to acquire."],
+        y_center: Annotated[float, "The center row in source pixel coordinates."],
+        x_center: Annotated[float, "The center column in source pixel coordinates."],
+        size_y: Annotated[int, "The height of the acquisition region in source pixels."],
+        size_x: Annotated[int, "The width of the acquisition region in source pixels."],
         scan_step: Annotated[
             float,
-            "The step size between sampled points in both y and x directions.",
+            "The step size in source pixels between sampled points in both y and x.",
         ] = 1.0,
     ) -> ToolResult:
         """Acquire an image, returning img_path, array_path, and psize in JSON.
 
+        The default source is a 512x512 cameraman image with indices 0 through 511.
+        Samples outside the source are zero. Each axis samples from center-size/2
+        to center+size/2 (exclusive); center=(256, 256), size=(512, 512), step=1
+        acquires the full default image.
         PNG image content is also included when enabled in the server settings.
         """
         return await call_acquisition(
