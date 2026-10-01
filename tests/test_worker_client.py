@@ -227,3 +227,16 @@ def test_configured_image_and_pixel_sizes(tmp_path) -> None:
     assert instrument.get_state()["pixel_size_x"] == 0.1
     assert instrument.get_state()["pixel_size_y"] == 0.1
     assert result["psize"] == 0.1
+
+
+@pytest.mark.parametrize("setting", [None, True, False])
+def test_axis_display_config_defaults_to_on(tmp_path, setting) -> None:
+    config = tmp_path / "config.yaml"
+    text = f"worker:\n  output_dir: {tmp_path / 'output'}\n"
+    if setting is not None:
+        text += f"acquisition:\n  add_axis_ticks: {str(setting).lower()}\n"
+    config.write_text(text, encoding="utf-8")
+
+    instrument = build_instrument(build_parser().parse_args(["--config", str(config)]))
+
+    assert instrument.add_axis_ticks is (True if setting is None else setting)

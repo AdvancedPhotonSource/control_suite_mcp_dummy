@@ -118,3 +118,38 @@ def test_scaled_source_bounds_and_psf(tmp_path, effects) -> None:
 
     np.testing.assert_allclose(values, unscaled.sample(rows, columns))
     np.testing.assert_array_equal(values[[0, 4, 5, 8]], 0)
+
+
+@pytest.mark.parametrize("show_axes", [True, False])
+@pytest.mark.parametrize("scale", [1, 0.001])
+def test_image_axis_labels_use_acquisition_positions(tmp_path, monkeypatch, show_axes, scale):
+    instrument = SimulatedInstrument(
+        whole_image=np.ones((100, 100)),
+        output_dir=tmp_path,
+        pixel_size_x=0.1 * scale,
+        pixel_size_y=0.2 * scale,
+    )
+    if not show_axes:
+        instrument.set_config("add_axis_ticks", False)
+    subplots = simulated_acquisition.plt.subplots
+    captured = {}
+
+    def capture_axes(*args, **kwargs):
+        fig, ax = subplots(*args, **kwargs)
+        captured["axes"] = ax
+        return fig, ax
+
+    monkeypatch.setattr(simulated_acquisition.plt, "subplots", capture_axes)
+    instrument.acquire_image(10.5 * scale, 5.5 * scale, scale, scale, 0.1 * scale)
+
+    ax = captured["axes"]
+    if show_axes:
+        x_labels = [float(label.get_text()) for label in ax.get_xticklabels()]
+        y_labels = [float(label.get_text()) for label in ax.get_yticklabels()]
+        np.testing.assert_allclose(x_labels, (5 + np.arange(10) * 0.1) * scale)
+        np.testing.assert_allclose(y_labels, (10 + np.arange(10) * 0.1) * scale)
+        assert ax.get_xlabel() == "x"
+        assert ax.get_ylabel() == "y"
+    else:
+        assert len(ax.get_xticks()) == 0
+        assert len(ax.get_yticks()) == 0

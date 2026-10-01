@@ -110,8 +110,7 @@ def build_worker_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--config", args.config])
     if args.image is not None:
         command.extend(["--image", args.image])
-    if args.add_axis_ticks:
-        command.append("--add-axis-ticks")
+    command.append("--add-axis-ticks" if args.add_axis_ticks else "--no-add-axis-ticks")
     command.extend(["--n-ticks", str(args.n_ticks)])
     if args.add_grid_lines:
         command.append("--add-grid-lines")
@@ -190,7 +189,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--image", default=None, help="Optional NumPy, TIFF, PNG, or JPEG image.")
     parser.add_argument("--output-dir", default=".tmp/control_suite_mcp_dummy")
-    parser.add_argument("--add-axis-ticks", action="store_true")
+    parser.add_argument(
+        "--add-axis-ticks",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Show acquisition coordinate ticks on images (default: enabled).",
+    )
     parser.add_argument("--n-ticks", type=int, default=10)
     parser.add_argument("--add-grid-lines", action="store_true")
     parser.add_argument("--invert-yaxis", action="store_true")

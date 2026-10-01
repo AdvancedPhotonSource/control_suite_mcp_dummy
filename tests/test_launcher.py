@@ -9,6 +9,7 @@ import pytest
 from control_suite_mcp_dummy.launcher import build_mcp_command, build_parser, build_worker_command
 from control_suite_mcp_dummy.mcp_server import build_parser as build_mcp_parser
 from control_suite_mcp_dummy.mcp_server import resolve_include_images
+from control_suite_mcp_dummy.worker import build_parser as build_worker_parser
 
 
 def test_launcher_builds_separate_process_commands(monkeypatch) -> None:
@@ -105,3 +106,18 @@ def test_launcher_forwards_image_settings(monkeypatch, tmp_path, flags, expected
     assert resolve_include_images(frontend_args.config, frontend_args.include_images) is expected
     assert "--include-images" not in build_worker_command(args)
     assert "--no-include-images" not in build_worker_command(args)
+
+
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [([], True), (["--add-axis-ticks"], True), (["--no-add-axis-ticks"], False)],
+)
+def test_launcher_forwards_axis_display(monkeypatch, flags, expected) -> None:
+    monkeypatch.setattr(
+        "control_suite_mcp_dummy.launcher.resolve_executable", lambda name: name
+    )
+    args = build_parser().parse_args(flags)
+
+    worker_args = build_worker_parser().parse_args(build_worker_command(args)[1:])
+
+    assert worker_args.add_axis_ticks is expected

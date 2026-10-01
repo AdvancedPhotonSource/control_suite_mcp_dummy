@@ -112,7 +112,7 @@ class SimulatedInstrument:
     pixel_size_x, pixel_size_y
         Source pixel spacing in acquisition coordinate units. Both default to 1.
     add_axis_ticks
-        Add physical coordinate ticks to acquired image plots.
+        Show acquisition coordinate ticks on image plots. Enabled by default.
     n_ticks
         Number of axis ticks when ``add_axis_ticks`` is enabled.
     add_grid_lines
@@ -145,7 +145,7 @@ class SimulatedInstrument:
 
     whole_image: np.ndarray
     output_dir: Path
-    add_axis_ticks: bool = False
+    add_axis_ticks: bool = True
     n_ticks: int = 10
     add_grid_lines: bool = False
     invert_yaxis: bool = False
@@ -557,9 +557,11 @@ class SimulatedInstrument:
             x_ticks = np.linspace(0, max(len(x) - 1, 0), min(self.n_ticks, len(x)), dtype=int)
             y_ticks = np.linspace(0, max(len(y) - 1, 0), min(self.n_ticks, len(y)), dtype=int)
             ax.set_xticks(x_ticks)
-            ax.set_xticklabels([f"{x[idx]:.1f}" for idx in x_ticks])
+            ax.set_xticklabels([f"{x[idx]:g}" for idx in x_ticks])
             ax.set_yticks(y_ticks)
-            ax.set_yticklabels([f"{y[idx]:.1f}" for idx in y_ticks])
+            ax.set_yticklabels([f"{y[idx]:g}" for idx in y_ticks])
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
         else:
             ax.set_xticks([])
             ax.set_yticks([])

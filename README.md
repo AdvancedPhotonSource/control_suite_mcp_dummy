@@ -64,6 +64,7 @@ acquisition:
   image: data/my_image.png
   pixel_size_x: 0.1
   pixel_size_y: 0.1
+  add_axis_ticks: true
 ```
 
 Both pixel sizes default to 1 and must be finite and positive. Image and line-scan
@@ -72,6 +73,10 @@ coordinate units. The source row is `y / pixel_size_y` and the source column is
 `x / pixel_size_x`; fractional indices use linear interpolation. Gaussian PSF
 sigma remains in source pixels. Samples outside the source pixel centers are
 zero, including when simulation effects are enabled.
+
+Image axis ticks are enabled by default. Set `acquisition.add_axis_ticks: false`
+to hide them. Tick labels show acquisition positions in the configured real units;
+for example, pixel index 50 is labeled 5 when the pixel size is 0.1.
 
 For a 100×100 image with pixel sizes of 0.1, this samples coordinates 5–6 on both
 axes (upper endpoint excluded), corresponding to source rows and columns 50–59:

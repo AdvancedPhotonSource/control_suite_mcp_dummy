@@ -249,7 +249,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default=None, help="Optional YAML worker configuration.")
     parser.add_argument("--image", default=None, help="Optional NumPy, TIFF, PNG, or JPEG image.")
     parser.add_argument("--output-dir", default=".tmp/control_suite_mcp_dummy")
-    parser.add_argument("--add-axis-ticks", action="store_true")
+    parser.add_argument(
+        "--add-axis-ticks",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Show acquisition coordinate ticks on images (default: enabled).",
+    )
     parser.add_argument("--n-ticks", type=int, default=10)
     parser.add_argument("--add-grid-lines", action="store_true")
     parser.add_argument("--invert-yaxis", action="store_true")
