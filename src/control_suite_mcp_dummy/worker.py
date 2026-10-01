@@ -9,6 +9,7 @@ import json
 import logging
 
 import numpy as np
+import tifffile
 import yaml
 import zmq
 
@@ -38,6 +39,8 @@ class InstrumentWorker:
             "get_state": self.instrument.get_state,
             "set_blur": self.instrument.set_blur,
             "set_offset": self.instrument.set_offset,
+            "set_config": self.instrument.set_config,
+            "set_attribute": self.instrument.set_attribute,
             "set_parameters": self.instrument.set_parameters,
             "acquire_image": self.instrument.acquire_image,
             "acquire_line_scan": self.instrument.acquire_line_scan,
@@ -86,13 +89,20 @@ class InstrumentWorker:
 
 
 def load_image(path: str | None) -> np.ndarray:
-    """Load a source image from ``.npy`` or create the built-in synthetic image."""
+    """Load a source image from ``.npy`` or TIFF, or create the default image."""
     if path is None:
         return create_default_image()
     image_path = Path(path)
-    if image_path.suffix != ".npy":
-        raise ValueError("Only .npy source images are supported by this dummy worker.")
-    return np.load(image_path)
+    suffix = image_path.suffix.lower()
+    if suffix == ".npy":
+        image = np.load(image_path)
+    elif suffix in {".tif", ".tiff"}:
+        image = tifffile.imread(image_path)
+    else:
+        raise ValueError("Only .npy, .tif, and .tiff source images are supported.")
+    if image.ndim == 3:
+        image = image[..., 0]
+    return np.asarray(image, dtype=np.float32)
 
 
 def load_config(path: str | None) -> dict[str, Any]:

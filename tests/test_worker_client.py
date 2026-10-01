@@ -7,12 +7,16 @@ from argparse import Namespace
 import multiprocessing as mp
 import time
 
+import numpy as np
+import tifffile
+
 from control_suite_mcp_dummy.simulated_acquisition import (
     SimulatedInstrument,
     create_default_image,
 )
 from control_suite_mcp_dummy.worker import InstrumentWorker
 from control_suite_mcp_dummy.worker import build_instrument
+from control_suite_mcp_dummy.worker import load_image
 from control_suite_mcp_dummy.zmq_client import WorkerClient
 
 
@@ -21,7 +25,6 @@ def run_worker(endpoint: str, output_dir: str) -> None:
     instrument = SimulatedInstrument(
         whole_image=create_default_image(),
         output_dir=Path(output_dir),
-        line_scan_return_gaussian_fit=True,
     )
     InstrumentWorker(instrument).serve(endpoint)
 
@@ -51,7 +54,16 @@ def test_worker_client_acquires_image_and_line_scan(tmp_path: Path) -> None:
         image_path = Path(image_result["img_path"])
         assert image_path.is_absolute()
         assert image_path.exists()
+        array_path = Path(image_result["array_path"])
+        assert array_path.is_absolute()
+        assert array_path.exists()
+        assert image_result["psize"] == 1
 
+        config_result = client.call(
+            "set_attribute",
+            {"name": "line_scan_return_gaussian_fit", "value": True},
+        )
+        assert config_result == {"name": "line_scan_return_gaussian_fit", "value": True}
         line_result = client.call(
             "acquire_line_scan",
             {"x_center": 228, "y_center": 228, "length": 32, "scan_step": 1.0, "angle": 0},
@@ -69,6 +81,7 @@ def test_worker_client_acquires_image_and_line_scan(tmp_path: Path) -> None:
         assert state["counter_acquire_image"] == 1
         assert state["parameters"] == [0.25]
         assert state["parameter_history"] == [[0.25]]
+        assert state["current_image_info"]["array_path"] == str(array_path)
     finally:
         process.terminate()
         process.join(timeout=5)
@@ -137,3 +150,15 @@ parameter_setting:
     assert instrument.set_parameters([5.0]) == "Set simulated parameters: z=5.0"
     assert instrument.blur == 1.0
     assert instrument.offset.tolist() == [-6.0, -6.0]
+
+
+def test_load_image_supports_tiff(tmp_path: Path) -> None:
+    """Worker image loader accepts TIFF files."""
+    image = np.arange(25, dtype=np.float32).reshape(5, 5)
+    image_path = tmp_path / "image.tiff"
+    tifffile.imwrite(image_path, image)
+
+    loaded = load_image(str(image_path))
+
+    assert loaded.dtype == np.float32
+    np.testing.assert_array_equal(loaded, image)

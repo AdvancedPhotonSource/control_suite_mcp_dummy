@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Any
 import argparse
 import asyncio
 import logging
 
 from fastmcp import FastMCP
+from fastmcp.tools.tool import ToolResult
+from fastmcp.utilities.types import Image
+import yaml
 
 from control_suite_mcp_dummy.zmq_client import WorkerClient
 
 logger = logging.getLogger(__name__)
 
 
-def create_mcp(worker_endpoint: str, timeout_ms: int = 30_000) -> FastMCP:
+def create_mcp(
+    worker_endpoint: str, timeout_ms: int = 30_000, include_images: bool = True
+) -> FastMCP:
     """Create the FastMCP server.
 
     Parameters
@@ -23,6 +29,8 @@ def create_mcp(worker_endpoint: str, timeout_ms: int = 30_000) -> FastMCP:
         ZMQ endpoint used to reach the instrument worker.
     timeout_ms
         Worker request timeout in milliseconds.
+    include_images
+        Include PNG image content alongside acquisition JSON payloads.
 
     Returns
     -------
@@ -34,6 +42,14 @@ def create_mcp(worker_endpoint: str, timeout_ms: int = 30_000) -> FastMCP:
 
     async def call_worker(method: str, params: dict[str, Any] | None = None) -> Any:
         return await asyncio.to_thread(client.call, method, params)
+
+    async def call_acquisition(method: str, params: dict[str, Any]) -> ToolResult:
+        payload = await call_worker(method, params)
+        result = ToolResult(content=payload, structured_content=payload)
+        if include_images:
+            image = Image(path=payload["img_path"])
+            result.content.append(await asyncio.to_thread(image.to_image_content))
+        return result
 
     @mcp.tool()
     async def health() -> dict[str, str]:
@@ -61,6 +77,22 @@ def create_mcp(worker_endpoint: str, timeout_ms: int = 30_000) -> FastMCP:
         return await call_worker("set_offset", {"y_offset": y_offset, "x_offset": x_offset})
 
     @mcp.tool()
+    async def set_config(
+        name: Annotated[str, "Writable simulated instrument configuration name."],
+        value: Annotated[Any, "JSON-serializable value to assign."],
+    ) -> dict[str, Any]:
+        """Set a writable simulated instrument configuration value."""
+        return await call_worker("set_config", {"name": name, "value": value})
+
+    @mcp.tool()
+    async def set_attribute(
+        name: Annotated[str, "Writable simulated instrument configuration name."],
+        value: Annotated[Any, "JSON-serializable value to assign."],
+    ) -> dict[str, Any]:
+        """Alias for ``set_config`` used by the EAA MCP acquisition proxy."""
+        return await call_worker("set_attribute", {"name": name, "value": value})
+
+    @mcp.tool()
     async def set_parameters(
         parameters: Annotated[
             list[float],
@@ -70,7 +102,7 @@ def create_mcp(worker_endpoint: str, timeout_ms: int = 30_000) -> FastMCP:
         """Set simulated instrument tuning parameters."""
         return await call_worker("set_parameters", {"parameters": parameters})
 
-    @mcp.tool()
+    @mcp.tool(output_schema={"type": "object", "additionalProperties": True})
     async def acquire_image(
         y_center: Annotated[float, "The y-coordinate of the center of the image to acquire."],
         x_center: Annotated[float, "The x-coordinate of the center of the image to acquire."],
@@ -80,9 +112,12 @@ def create_mcp(worker_endpoint: str, timeout_ms: int = 30_000) -> FastMCP:
             float,
             "The step size between sampled points in both y and x directions.",
         ] = 1.0,
-    ) -> dict[str, str]:
-        """Acquire an image from the simulated instrument."""
-        return await call_worker(
+    ) -> ToolResult:
+        """Acquire an image, returning img_path, array_path, and psize in JSON.
+
+        PNG image content is also included when enabled in the server settings.
+        """
+        return await call_acquisition(
             "acquire_image",
             {
                 "y_center": y_center,
@@ -93,7 +128,7 @@ def create_mcp(worker_endpoint: str, timeout_ms: int = 30_000) -> FastMCP:
             },
         )
 
-    @mcp.tool()
+    @mcp.tool(output_schema={"type": "object", "additionalProperties": True})
     async def acquire_line_scan(
         x_center: Annotated[float, "The x-coordinate of the center of the line scan."],
         y_center: Annotated[float, "The y-coordinate of the center of the line scan."],
@@ -103,9 +138,12 @@ def create_mcp(worker_endpoint: str, timeout_ms: int = 30_000) -> FastMCP:
             float,
             "The angle of the line scan in degrees. 0 is horizontal.",
         ] = 0.0,
-    ) -> dict[str, Any]:
-        """Acquire a line scan from the simulated instrument."""
-        return await call_worker(
+    ) -> ToolResult:
+        """Acquire a line scan, returning img_path and optional fit metadata in JSON.
+
+        PNG plot content is also included when enabled in the server settings.
+        """
+        return await call_acquisition(
             "acquire_line_scan",
             {
                 "x_center": x_center,
@@ -119,9 +157,37 @@ def create_mcp(worker_endpoint: str, timeout_ms: int = 30_000) -> FastMCP:
     return mcp
 
 
+def resolve_include_images(config_path: str | None, override: bool | None) -> bool:
+    """Resolve image content settings with CLI overrides taking precedence."""
+    if override is not None:
+        return override
+    if config_path is None:
+        return True
+    with Path(config_path).open("r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+    if config is None:
+        return True
+    if not isinstance(config, dict):
+        raise ValueError("MCP config YAML must contain a mapping at the top level.")
+    section = config.get("mcp", {})
+    if not isinstance(section, dict):
+        raise ValueError("Config section 'mcp' must be a mapping.")
+    include_images = section.get("include_images", True)
+    if not isinstance(include_images, bool):
+        raise ValueError("mcp.include_images must be a boolean.")
+    return include_images
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the MCP server CLI parser."""
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", default=None, help="Optional YAML configuration.")
+    parser.add_argument(
+        "--include-images",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include image content alongside JSON (default: enabled; overrides YAML).",
+    )
     parser.add_argument("--worker", default="tcp://127.0.0.1:5555")
     parser.add_argument("--timeout-ms", type=int, default=30_000)
     parser.add_argument("--host", default="127.0.0.1")
@@ -135,7 +201,11 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args = build_parser().parse_args()
     logger.info("Starting MCP server, forwarding to worker at %s", args.worker)
-    mcp = create_mcp(args.worker, timeout_ms=args.timeout_ms)
+    mcp = create_mcp(
+        args.worker,
+        timeout_ms=args.timeout_ms,
+        include_images=resolve_include_images(args.config, args.include_images),
+    )
     mcp.run(transport="http", host=args.host, port=args.port, path=args.path)
 
 

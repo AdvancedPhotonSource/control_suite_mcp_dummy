@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from argparse import Namespace
 
-from control_suite_mcp_dummy.launcher import build_mcp_command, build_worker_command
+import pytest
+
+from control_suite_mcp_dummy.launcher import build_mcp_command, build_parser, build_worker_command
+from control_suite_mcp_dummy.mcp_server import build_parser as build_mcp_parser
+from control_suite_mcp_dummy.mcp_server import resolve_include_images
 
 
 def test_launcher_builds_separate_process_commands(monkeypatch) -> None:
@@ -16,6 +20,7 @@ def test_launcher_builds_separate_process_commands(monkeypatch) -> None:
     args = Namespace(
         worker_endpoint="tcp://127.0.0.1:5555",
         config=None,
+        include_images=None,
         output_dir=".tmp/out",
         image=None,
         add_axis_ticks=False,
@@ -44,7 +49,7 @@ def test_launcher_builds_separate_process_commands(monkeypatch) -> None:
 
 
 def test_launcher_forwards_config_path(monkeypatch) -> None:
-    """Launcher forwards YAML config paths to the worker."""
+    """Launcher forwards YAML config paths to both processes."""
     monkeypatch.setattr(
         "control_suite_mcp_dummy.launcher.resolve_executable",
         lambda name: f"/venv/bin/{name}",
@@ -52,6 +57,7 @@ def test_launcher_forwards_config_path(monkeypatch) -> None:
     args = Namespace(
         worker_endpoint="tcp://127.0.0.1:5555",
         config="configs/simulated_parameter_tuning.yaml",
+        include_images=None,
         output_dir=".tmp/out",
         image=None,
         add_axis_ticks=False,
@@ -74,3 +80,28 @@ def test_launcher_forwards_config_path(monkeypatch) -> None:
 
     assert "--config" in worker_command
     assert "configs/simulated_parameter_tuning.yaml" in worker_command
+    mcp_command = build_mcp_command(args)
+    assert "--config" in mcp_command
+    assert "configs/simulated_parameter_tuning.yaml" in mcp_command
+
+
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [([], False), (["--include-images"], True), (["--no-include-images"], False)],
+)
+def test_launcher_forwards_image_settings(monkeypatch, tmp_path, flags, expected) -> None:
+    """The frontend receives the config and any explicit image-content override."""
+    monkeypatch.setattr(
+        "control_suite_mcp_dummy.launcher.resolve_executable", lambda name: name
+    )
+    config = tmp_path / "config.yaml"
+    config.write_text("mcp:\n  include_images: false\n", encoding="utf-8")
+    args = build_parser().parse_args(["--config", str(config), *flags])
+
+    command = build_mcp_command(args)
+    frontend_args = build_mcp_parser().parse_args(command[1:])
+
+    assert frontend_args.include_images is args.include_images
+    assert resolve_include_images(frontend_args.config, frontend_args.include_images) is expected
+    assert "--include-images" not in build_worker_command(args)
+    assert "--no-include-images" not in build_worker_command(args)

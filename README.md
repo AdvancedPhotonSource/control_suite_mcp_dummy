@@ -50,6 +50,24 @@ YAML, pass a config file to the launcher:
 uv run control-suite --config configs/simulated_parameter_tuning.yaml
 ```
 
+The YAML `acquisition.image` setting accepts `.npy`, `.tif`, and `.tiff`
+source images. If it is `null`, the worker uses the built-in synthetic image.
+
+Acquisition tools return PNG image content alongside their existing JSON payloads
+by default. The JSON still includes artifact paths and acquisition metadata.
+The MCP frontend must be able to read the worker's PNG files.
+
+For text-only responses, set `mcp.include_images: false` in YAML or use:
+
+```bash
+uv run control-suite --config configs/simulated_parameter_tuning.yaml --no-include-images
+```
+
+Both `control-suite` and `control-suite-mcp` accept `--config`,
+`--include-images`, and `--no-include-images`. The image-content CLI flags
+override the YAML setting; `--include-images` re-enables images when YAML
+disables them.
+
 The launcher starts the worker first, waits for a ZMQ health response, then
 starts the MCP server. The worker and MCP server remain separate OS processes.
 
@@ -108,6 +126,8 @@ codex mcp add control-suite-dummy --url http://127.0.0.1:8050/mcp
 - `acquire_line_scan(x_center, y_center, length, scan_step, angle=0.0)`
 - `set_blur(blur)`
 - `set_offset(y_offset, x_offset)`
+- `set_config(name, value)`
+- `set_attribute(name, value)`
 - `set_parameters(parameters)`
 - `get_state()`
 - `health()`

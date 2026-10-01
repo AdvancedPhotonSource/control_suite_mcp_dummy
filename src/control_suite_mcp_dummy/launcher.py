@@ -138,7 +138,7 @@ def build_worker_command(args: argparse.Namespace) -> list[str]:
 
 def build_mcp_command(args: argparse.Namespace) -> list[str]:
     """Build the MCP server subprocess command."""
-    return [
+    command = [
         resolve_executable("control-suite-mcp"),
         "--worker",
         args.worker_endpoint,
@@ -151,6 +151,11 @@ def build_mcp_command(args: argparse.Namespace) -> list[str]:
         "--path",
         args.mcp_path,
     ]
+    if args.config is not None:
+        command.extend(["--config", args.config])
+    if args.include_images is not None:
+        command.append("--include-images" if args.include_images else "--no-include-images")
+    return command
 
 
 def monitor_processes(processes: Sequence[ManagedProcess]) -> int:
@@ -176,7 +181,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mcp-host", default="127.0.0.1")
     parser.add_argument("--mcp-port", type=int, default=8050)
     parser.add_argument("--mcp-path", default="/mcp")
-    parser.add_argument("--config", default=None, help="Optional YAML worker configuration.")
+    parser.add_argument("--config", default=None, help="Optional YAML configuration.")
+    parser.add_argument(
+        "--include-images",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include image content alongside JSON (default: enabled; overrides YAML).",
+    )
     parser.add_argument("--image", default=None, help="Optional .npy source image for the worker.")
     parser.add_argument("--output-dir", default=".tmp/control_suite_mcp_dummy")
     parser.add_argument("--add-axis-ticks", action="store_true")

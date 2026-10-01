@@ -171,10 +171,31 @@ class SimulatedInstrument:
     blur: float | None = None
     offset: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0]))
 
+    writable_config_names = {
+        "add_axis_ticks",
+        "n_ticks",
+        "add_grid_lines",
+        "invert_yaxis",
+        "line_scan_gaussian_fit_y_threshold",
+        "plot_image_in_log_scale",
+        "line_scan_return_gaussian_fit",
+        "poisson_noise_scale",
+        "gaussian_psf_sigma",
+        "scan_jitter",
+        "parameter_names",
+        "parameter_ranges",
+        "true_parameters",
+        "blur_factor",
+        "drift_factor",
+        "add_line_scan_candidates_to_image",
+    }
+
     def __post_init__(self) -> None:
         """Build interpolators and initialize state buffers."""
         self.output_dir = self.output_dir.expanduser().resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.image_array_artifact_dir = self.output_dir / "acquisition_arrays"
+        self.image_array_artifact_dir.mkdir(parents=True, exist_ok=True)
         self.interpolator = RegularGridInterpolator(
             (np.arange(self.whole_image.shape[0]), np.arange(self.whole_image.shape[1])),
             self.whole_image,
@@ -188,6 +209,9 @@ class SimulatedInstrument:
         self.psize_0: float | None = None
         self.psize_km1: float | None = None
         self.psize_k: float | None = None
+        self.image_0_path: str | None = None
+        self.image_km1_path: str | None = None
+        self.image_k_path: str | None = None
         self.image_acquisition_call_history: list[dict[str, Any]] = []
         self.line_scan_call_history: list[dict[str, Any]] = []
         self.parameter_history: list[list[float]] = []
@@ -226,6 +250,53 @@ class SimulatedInstrument:
         """Set simulated drift offset in ``(y, x)`` order."""
         self.offset = np.array([y_offset, x_offset], dtype=float)
         return {"offset": self.offset.tolist()}
+
+    def set_config(self, name: str, value: Any) -> dict[str, Any]:
+        """Set a writable simulated instrument configuration value.
+
+        Parameters
+        ----------
+        name
+            Configuration attribute name.
+        value
+            JSON-serializable value to assign.
+
+        Returns
+        -------
+        dict[str, Any]
+            Updated name and value.
+        """
+        if name not in self.writable_config_names:
+            raise ValueError(f"Unsupported configuration attribute: {name}")
+        if name in {"parameter_names", "true_parameters"}:
+            value = list(value)
+        if name == "parameter_ranges":
+            if len(value) != 2:
+                raise ValueError("parameter_ranges must contain lower and upper bound rows.")
+            value = [tuple(float(item) for item in row) for row in value]
+        setattr(self, name, value)
+        if name in {"parameter_names", "parameter_ranges", "true_parameters"}:
+            self.validate_parameter_configuration()
+            if len(self.parameters) != len(self.parameter_names):
+                self.parameters = [0.0 for _ in self.parameter_names]
+                self.parameter_history.clear()
+        return {"name": name, "value": self.json_safe(value)}
+
+    def set_attribute(self, name: str, value: Any) -> dict[str, Any]:
+        """Alias for ``set_config`` used by the EAA MCP acquisition proxy."""
+        return self.set_config(name=name, value=value)
+
+    def json_safe(self, value: Any) -> Any:
+        """Convert NumPy values and tuples into JSON-serializable objects."""
+        if isinstance(value, dict):
+            return {str(key): self.json_safe(item) for key, item in value.items()}
+        if isinstance(value, list | tuple):
+            return [self.json_safe(item) for item in value]
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        return value
 
     def set_parameters(self, parameters: list[float]) -> str:
         """Set simulated instrument tuning parameters.
@@ -303,17 +374,75 @@ class SimulatedInstrument:
             "counter_acquire_image": self.counter_acquire_image,
             "image_acquisition_call_history": self.image_acquisition_call_history,
             "line_scan_call_history": self.line_scan_call_history,
+            "current_image_info": self.get_current_image_info(),
+            "previous_image_info": self.get_previous_image_info(),
+            "initial_image_info": self.get_initial_image_info(),
         }
 
-    def update_image_buffers(self, new_image: np.ndarray, psize: float = 1.0) -> None:
+    def save_image_array_artifact(self, image: np.ndarray) -> str:
+        """Save an acquired image array to a managed ``.npy`` artifact."""
+        path = self.image_array_artifact_dir / (
+            f"image_{self.counter_acquire_image}_{get_timestamp()}.npy"
+        )
+        np.save(path, image)
+        return str(path)
+
+    def collect_referenced_image_array_paths(self) -> set[Path]:
+        """Return currently referenced image array artifact paths."""
+        paths = {self.image_0_path, self.image_km1_path, self.image_k_path}
+        return {Path(path).expanduser().resolve() for path in paths if path is not None}
+
+    def garbage_collect_image_array_artifacts(self) -> None:
+        """Delete unreferenced managed ``.npy`` image artifacts."""
+        live_paths = self.collect_referenced_image_array_paths()
+        for path in self.image_array_artifact_dir.glob("*.npy"):
+            resolved = path.resolve()
+            if resolved not in live_paths:
+                try:
+                    resolved.unlink()
+                except FileNotFoundError:
+                    continue
+
+    def update_image_buffers(self, new_image: np.ndarray, psize: float = 1.0) -> str:
         """Update first, previous, and current image buffers."""
+        new_image_path = self.save_image_array_artifact(new_image)
         if self.image_0 is None:
             self.image_0 = new_image
             self.psize_0 = psize
+            self.image_0_path = new_image_path
         self.image_km1 = self.image_k
         self.psize_km1 = self.psize_k
+        self.image_km1_path = self.image_k_path
         self.image_k = new_image
         self.psize_k = psize
+        self.image_k_path = new_image_path
+        self.garbage_collect_image_array_artifacts()
+        return new_image_path
+
+    def get_image_buffer_info_by_name(self, buffer_name: str) -> dict[str, Any]:
+        """Return path, pixel size, and shape metadata for an image buffer."""
+        image = getattr(self, buffer_name)
+        path = getattr(self, f"{buffer_name}_path")
+        psize = getattr(self, f"psize_{buffer_name.split('_', 1)[1]}")
+        return {
+            "buffer_name": buffer_name,
+            "array_path": path,
+            "psize": psize,
+            "shape": None if image is None else list(image.shape),
+            "dtype": None if image is None else str(image.dtype),
+        }
+
+    def get_current_image_info(self) -> dict[str, Any]:
+        """Return metadata for the current image buffer."""
+        return self.get_image_buffer_info_by_name("image_k")
+
+    def get_previous_image_info(self) -> dict[str, Any]:
+        """Return metadata for the previous image buffer."""
+        return self.get_image_buffer_info_by_name("image_km1")
+
+    def get_initial_image_info(self) -> dict[str, Any]:
+        """Return metadata for the initial image buffer."""
+        return self.get_image_buffer_info_by_name("image_0")
 
     def sample(self, yy_flat: np.ndarray, xx_flat: np.ndarray, shape=None) -> np.ndarray:
         """Sample the source image and apply optional simulated physics effects."""
@@ -375,7 +504,7 @@ class SimulatedInstrument:
         size_y: int,
         size_x: int,
         scan_step: float = 1.0,
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         """Acquire and plot an image sampled from the whole image."""
         loc_y = y_center - size_y / 2
         loc_x = x_center - size_x / 2
@@ -394,7 +523,7 @@ class SimulatedInstrument:
         yy, xx = np.meshgrid(y + self.offset[0], x + self.offset[1], indexing="ij")
         arr_shape = (len(y), len(x))
         arr = self.sample(yy.ravel(), xx.ravel(), shape=arr_shape).reshape(arr_shape)
-        self.update_image_buffers(arr, psize=scan_step)
+        array_path = self.update_image_buffers(arr, psize=scan_step)
 
         image_to_plot = arr if not self.plot_image_in_log_scale else np.log10(arr + 1)
         fig, ax = plt.subplots()
@@ -419,7 +548,7 @@ class SimulatedInstrument:
         path = self.output_dir / filename
         fig.savefig(path, bbox_inches="tight", pad_inches=0)
         plt.close(fig)
-        return {"img_path": str(path)}
+        return {"img_path": str(path), "array_path": array_path, "psize": scan_step}
 
     def acquire_line_scan(
         self,

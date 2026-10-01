@@ -1,9 +1,12 @@
 worker:
   output_dir: .tmp/control_suite_mcp_dummy
 
+mcp:
+  include_images: true
+
 acquisition:
-  # Optional .npy image path. When null, the built-in synthetic image is used.
-  image: null
+  # Optional .npy, .tif, or .tiff image path. When null, the built-in synthetic image is used.
+  image: data/synthetic_test_target.tiff
   add_axis_ticks: true
   add_grid_lines: false
   invert_yaxis: false
